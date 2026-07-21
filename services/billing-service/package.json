@@ -1,0 +1,10 @@
+﻿{
+  "name": "billing-service",
+  "version": "1.0.0",
+  "description": "Processes payments and publishes OrderPaidEvent to Kafka",
+  "main": "app.js",
+  "dependencies": {
+    "express": "^4.18.2",
+    "kafkajs": "^2.2.4"
+  }
+}
