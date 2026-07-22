@@ -24,6 +24,8 @@ producer.connect().then(() => console.log('Kafka Producer Connected'));
 
 // 3. API Endpoint: Lock Seat with 10 Minutes TTL
 app.post('/api/v1/reservations/lock', async (req, res) => {
+    console.log("Headers:", req.headers);
+    console.log("Body:", req.body);
     const { seat_id, user_id, event_id } = req.body;
 
     if (!seat_id || !user_id) {

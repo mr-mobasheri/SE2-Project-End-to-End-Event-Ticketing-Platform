@@ -133,3 +133,13 @@ services:
       - kafka
     networks:
       - ticketing-network
+
+  frontend:
+    build: ../frontend
+    container_name: ticketsaz-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - api-gateway
+    networks:
+      - ticketing-network

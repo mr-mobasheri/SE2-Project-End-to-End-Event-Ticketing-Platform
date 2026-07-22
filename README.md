@@ -24,3 +24,39 @@ Follow these simple steps to spin up the entire ecosystem:
    ```bash
    git clone <repository_url>
    cd Ticketing-Platform-Repo
+   ```
+
+2. **Start the full stack** (microservices + frontend):
+   ```bash
+   cd infrastructure
+   docker compose up --build
+   ```
+
+3. **Open the web app** at **http://localhost:5173**
+
+4. *(Optional)* Apply the database schema for PostgreSQL-backed events:
+   ```bash
+   docker exec -i ticketing-postgres psql -U postgres_admin -d ticketing < ../database-migrations/V1__baseline_schema.sql
+   ```
+
+## 🎨 Web Frontend
+
+A React + Vite frontend lives in `frontend/`. It provides an interactive UI for the full booking journey:
+
+| Step | Action |
+|------|--------|
+| 1 | Sign in with any username |
+| 2 | Browse and select an event |
+| 3 | Pick a seat on the interactive map |
+| 4 | Pay (simulated gateway) |
+| 5 | Receive your QR code ticket |
+
+**Development mode** (backend in Docker, frontend with hot reload):
+```bash
+cd frontend
+npm install
+npm run dev
+```
+Then visit **http://localhost:5173** — Vite proxies `/api` to the gateway on port 8080.
+
+See `frontend/README.md` for more details.
