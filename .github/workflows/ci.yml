@@ -1,1 +1,102 @@
+name: CI - Run Unit Tests
 
+on:
+  push:
+    branches: [ "main", "master", "dev", "develop" ]
+  pull_request:
+    branches: [ "main", "master", "dev", "develop" ]
+
+jobs:
+  # -------------------------------------------------------------
+  # 1. FRONTEND UNIT TESTS (Vite / React)
+  # -------------------------------------------------------------
+  frontend-tests:
+    name: Frontend Unit Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        run: npm ci
+
+      - name: Run Frontend Tests
+        run: npm test -- --passWithNoTests
+
+  # -------------------------------------------------------------
+  # 2. BACKEND SERVICES TESTS
+  # Runs tests in root `services` folder or inside individual service subdirectories
+  # -------------------------------------------------------------
+  services-tests:
+    name: Backend Services Unit Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Test Root Services / Sub-Services
+        run: |
+          # If services root has package.json
+          if [ -f "services/package.json" ]; then
+            echo "Testing root services package..."
+            cd services
+            npm ci
+            npm test -- --passWithNoTests
+            cd ..
+          fi
+
+          # Loop through each individual service folder if microservices exist
+          for dir in services/*/; do
+            if [ -f "$dir/package.json" ]; then
+              echo "Testing service in: $dir"
+              cd "$dir"
+              npm ci
+              npm test -- --passWithNoTests
+              cd - > /dev/null
+            fi
+          done
+
+  # -------------------------------------------------------------
+  # 3. QA TESTS
+  # Runs unit/integration tests located in the `qa-tests` folder
+  # -------------------------------------------------------------
+  qa-tests:
+    name: QA Test Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run QA Tests (if package.json exists)
+        run: |
+          if [ -f "qa-tests/package.json" ]; then
+            cd qa-tests
+            npm ci
+            npm test -- --passWithNoTests
+          else
+            echo "No package.json found in qa-tests folder, skipping."
+          fi
+          
