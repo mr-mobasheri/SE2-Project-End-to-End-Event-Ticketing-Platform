@@ -1,5 +1,22 @@
 import { useMemo } from 'react';
 
+function isSeatUnavailable(seat, lockedSeats) {
+  if (lockedSeats.includes(seat.seat_id)) return true;
+  return (
+    seat.disabled ||
+    seat.isBooked ||
+    seat.is_booked ||
+    seat.isLocked ||
+    seat.is_locked ||
+    seat.isReserved ||
+    seat.is_reserved ||
+    seat.status === 'BOOKED' ||
+    seat.status === 'LOCKED' ||
+    seat.state === 'BOOKED' ||
+    seat.state === 'LOCKED'
+  );
+}
+
 export default function SeatMap({ seats, selectedSeatId, onSelect, lockedSeats = [] }) {
   const sectors = useMemo(() => {
     const grouped = {};
@@ -30,7 +47,7 @@ export default function SeatMap({ seats, selectedSeatId, onSelect, lockedSeats =
         </div>
         <div className="legend-item">
           <div className="legend-dot" style={{ background: 'rgba(239, 68, 68, 0.3)', border: '1px solid rgba(239, 68, 68, 0.5)' }} />
-          Locked
+          Reserved
         </div>
       </div>
 
@@ -47,14 +64,14 @@ export default function SeatMap({ seats, selectedSeatId, onSelect, lockedSeats =
             <div className="seat-grid" style={{ gridTemplateColumns: `repeat(${cols}, 36px)` }}>
               {sector.seats.map((seat) => {
                 const isSelected = selectedSeatId === seat.seat_id;
-                const isLocked = lockedSeats.includes(seat.seat_id);
+                const isUnavailable = isSeatUnavailable(seat, lockedSeats);
                 return (
                   <button
                     key={seat.seat_id}
-                    className={`seat-btn ${isSelected ? 'selected' : ''} ${isLocked ? 'locked' : ''}`}
-                    onClick={() => !isLocked && onSelect(seat)}
-                    disabled={isLocked}
-                    title={`${seat.seat_id} — $${seat.price}`}
+                    className={`seat-btn ${isSelected ? 'selected' : ''} ${isUnavailable ? 'locked' : ''}`}
+                    onClick={() => !isUnavailable && onSelect(seat)}
+                    disabled={isUnavailable}
+                    title={`${seat.seat_id} — $${seat.price}${isUnavailable ? ' (reserved)' : ''}`}
                   >
                     {seat.col}
                   </button>

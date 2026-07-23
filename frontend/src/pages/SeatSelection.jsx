@@ -15,15 +15,32 @@ export default function SeatSelection() {
   const [locking, setLocking] = useState(false);
   const [error, setError] = useState('');
 
+  const loadSeats = async () => {
+    const { ok, data } = await getEventSeats(eventId);
+    if (ok && data.seats) {
+      setSeats(data.seats);
+    } else {
+      setError('Failed to load seat map.');
+    }
+    setLoading(false);
+  };
+
   useEffect(() => {
-    getEventSeats(eventId).then(({ ok, data }) => {
-      if (ok && data.seats) {
-        setSeats(data.seats);
-      } else {
-        setError('Failed to load seat map.');
+    setLoading(true);
+    loadSeats();
+  }, [eventId]);
+
+  useEffect(() => {
+    const refreshOnFocus = () => {
+      if (document.visibilityState === 'visible') {
+        getEventSeats(eventId).then(({ ok, data }) => {
+          if (ok && data.seats) setSeats(data.seats);
+        });
       }
-      setLoading(false);
-    });
+    };
+
+    document.addEventListener('visibilitychange', refreshOnFocus);
+    return () => document.removeEventListener('visibilitychange', refreshOnFocus);
   }, [eventId]);
 
   const handleSelect = (seat) => {

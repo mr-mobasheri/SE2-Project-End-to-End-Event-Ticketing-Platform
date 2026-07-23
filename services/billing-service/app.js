@@ -1,9 +1,12 @@
-﻿// billing-service/app.js
+﻿// services/billing-service/app.js
 const express = require('express');
 const { Kafka } = require('kafkajs');
 
 const app = express();
-app.use(express.json());
+
+// بادی‌پارسرهای ضدگلوله برای پذیرش تمامی فرمت‌های فرانت‌آند
+app.use(express.json({ type: '*/*' })); // فیلتر کردن و پارس اجباری هر نوع هدر ورودی به فرمت JSON
+app.use(express.urlencoded({ extended: true })); // پشتیبانی کامل از داده‌های فرمی و URL-Encoded
 
 // Kafka Setup
 const kafka = new Kafka({
@@ -15,9 +18,18 @@ producer.connect().then(() => console.log('Billing Kafka Producer Connected'));
 
 // API Endpoint: Checkout & Process Payment
 app.post('/api/v1/payments/checkout', async (req, res) => {
-    const { user_id, seat_id, amount, reservation_id } = req.body;
+    console.log("Headers:", req.headers);
+    console.log("Body:", req.body);
 
+    // پذیرش هم‌زمان camelCase (فرانت‌آند) و snake_case (مستند پروژه) برای جلوگیری از تعارض
+    const user_id = req.body.user_id || req.body.userId || req.body.username || req.body.user;
+    const seat_id = req.body.seat_id || req.body.seatId;
+    const amount = req.body.amount || req.body.price;
+    const reservation_id = req.body.reservation_id || req.body.reservationId || req.body.bookingId || req.body.id;
+
+    // اعتبارسنجی منعطف ورودی‌ها
     if (!user_id || !seat_id || !reservation_id) {
+        console.warn(`[Billing] Validation Failed: user_id=${user_id}, seat_id=${seat_id}, reservation_id=${reservation_id}`);
         return res.status(400).json({ error: 'Missing payment details' });
     }
 
@@ -30,7 +42,7 @@ app.post('/api/v1/payments/checkout', async (req, res) => {
         const referenceId = `ref_bank_${Math.floor(Math.random() * 10000000)}`;
         console.log(`[Billing] Payment successful. Ref ID: ${referenceId}`);
 
-        // Publish OrderPaidEvent (Published Language - PL) to Kafka
+        // Publish OrderPaidEvent (Published Language - PL) to Kafka using resolved variables
         const eventPayload = {
             user_id,
             seat_id,
@@ -63,4 +75,4 @@ app.post('/api/v1/payments/checkout', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3004;
-app.listen(PORT, () => console.log(`Billing Service listening on port ${PORT}`));
+app.listen(PORT, () => console.log("Billing Service listening on port 3004"));

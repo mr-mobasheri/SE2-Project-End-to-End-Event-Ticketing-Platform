@@ -1,18 +1,14 @@
-﻿// notification-service/app.js
+﻿// services/notification-service/app.js
 const express = require('express');
 const { Kafka } = require('kafkajs');
 const crypto = require('crypto');
-const QRCode = require('qrcode');
 
 const app = express();
+app.use(express.json({ type: '*/*' }));
+app.use(express.urlencoded({ extended: true }));
 
-const tickets = new Map();
-
-function generateQrHash(userId, seatId, referenceId) {
-    return crypto.createHash('sha256')
-        .update(`${userId}_${seatId}_${referenceId}`)
-        .digest('hex');
-}
+// حافظه موقت برای بلیت‌ها
+const ticketsMap = new Map();
 
 // Kafka Setup
 const kafka = new Kafka({
@@ -26,54 +22,56 @@ const runConsumer = async () => {
     await consumer.subscribe({ topic: 'ticketing-payments', fromBeginning: true });
 
     await consumer.run({
-        eachMessage: async ({ message }) => {
+        eachMessage: async ({ topic, partition, message }) => {
             const eventData = JSON.parse(message.value.toString());
             console.log(`[Notification] Received OrderPaidEvent from Kafka for Seat: ${eventData.seat_id}`);
 
-            const qrHash = generateQrHash(eventData.user_id, eventData.seat_id, eventData.reference_id);
-            console.log(`[Notification] Cryptographic QR Hash generated: ${qrHash}`);
+            // Generate Cryptographic QR Hash
+            const qrHash = crypto.createHash('sha256')
+                .update(`${eventData.user_id}_${eventData.seat_id}_${eventData.reference_id}`)
+                .digest('hex');
 
-            tickets.set(eventData.reference_id, {
-                user_id: eventData.user_id,
-                seat_id: eventData.seat_id,
+            // ساخت آدرس مستقیم عکس QR Code به صورت پویا جهت رندر در مرورگر
+            const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${qrHash}`;
+
+            // تعریف غنی فیلدها و تصاویر بلیت برای هماهنگی با هر نوع ساختار فرانت‌آند
+            const ticket = {
+                id: `tkt_${Math.floor(Math.random() * 1000000)}`,
+                ticketId: `tkt_${Math.floor(Math.random() * 1000000)}`,
+                userId: eventData.user_id,
+                seatId: eventData.seat_id,
+                referenceId: eventData.reference_id,
                 reference_id: eventData.reference_id,
-                reservation_id: eventData.reservation_id,
-                amount: eventData.amount,
-                qr_hash: qrHash,
-                issued_at: new Date().toISOString()
-            });
+                reference: eventData.reference_id, 
+                qrHash: qrHash,
+                qrCodeHash: qrHash, 
+                qrCodeUrl: qrCodeUrl,  // آدرس مستقیم تصویر
+                qrCode: qrCodeUrl,     // آدرس مستقیم تصویر برای هماهنگی بیشتر
+                qr_code: qrCodeUrl,    // آدرس مستقیم تصویر
+                status: 'ACTIVE',
+                createdAt: new Date().toISOString()
+            };
 
-            console.log(`[Notification] Dispatching Ticket Email/SMS to User ${eventData.user_id}...`);
-            await new Promise(resolve => setTimeout(resolve, 300));
-            console.log(`[Notification] Ticket delivered successfully to User ${eventData.user_id}!`);
+            ticketsMap.set(eventData.reference_id, ticket);
+            console.log(`[Notification] Ticket saved to memory for Ref ID: ${eventData.reference_id}`);
         }
     });
 };
 
 runConsumer().catch(console.error);
 
-app.get('/health', (req, res) => res.status(200).send('Notification service consumer is running'));
-
-app.get('/api/v1/tickets/:referenceId', async (req, res) => {
-    const ticket = tickets.get(req.params.referenceId);
-
-    if (!ticket) {
-        return res.status(404).json({ error: 'Ticket not ready yet. Please wait a moment and try again.' });
-    }
-
-    try {
-        const qrCode = await QRCode.toDataURL(ticket.qr_hash, {
-            width: 280,
-            margin: 2,
-            color: { dark: '#1a1a2e', light: '#ffffff' }
-        });
-
-        return res.status(200).json({ ...ticket, qr_code: qrCode });
-    } catch (error) {
-        console.error('QR generation failed:', error);
-        return res.status(500).json({ error: 'Failed to generate QR code' });
+app.get('/api/v1/tickets/:referenceId', (req, res) => {
+    const { referenceId } = req.params;
+    console.log(`[Notification] Fetching ticket for Ref ID: ${referenceId}`);
+    const ticket = ticketsMap.get(referenceId);
+    if (ticket) {
+        return res.status(200).json(ticket);
+    } else {
+        return res.status(404).json({ error: 'Ticket not found yet' });
     }
 });
 
+app.get('/health', (req, res) => res.status(200).send('Notification service consumer is running'));
+
 const PORT = process.env.PORT || 3005;
-app.listen(PORT, () => console.log(`Notification Service listening on port ${PORT}`));
+app.listen(PORT, () => console.log(`Notification Service listening on port 3005`));
