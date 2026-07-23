@@ -8,7 +8,7 @@ on:
 
 jobs:
   # -------------------------------------------------------------
-  # 1. FRONTEND UNIT TESTS (Vite / React)
+  # 1. FRONTEND UNIT TESTS
   # -------------------------------------------------------------
   frontend-tests:
     name: Frontend Unit Tests
@@ -25,18 +25,20 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
 
       - name: Install Frontend Dependencies
-        run: npm ci
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
 
       - name: Run Frontend Tests
-        run: npm test -- --passWithNoTests
+        run: npm run test --if-present
 
   # -------------------------------------------------------------
   # 2. BACKEND SERVICES TESTS
-  # Runs tests in root `services` folder or inside individual service subdirectories
   # -------------------------------------------------------------
   services-tests:
     name: Backend Services Unit Tests
@@ -53,29 +55,28 @@ jobs:
 
       - name: Test Root Services / Sub-Services
         run: |
-          # If services root has package.json
+          # 1. Check root services folder if package.json exists
           if [ -f "services/package.json" ]; then
-            echo "Testing root services package..."
+            echo "Testing root services..."
             cd services
-            npm ci
-            npm test -- --passWithNoTests
+            if [ -f package-lock.json ]; then npm ci; else npm install; fi
+            npm run test --if-present
             cd ..
           fi
 
-          # Loop through each individual service folder if microservices exist
+          # 2. Loop through all subservices (e.g. services/api-gateway)
           for dir in services/*/; do
             if [ -f "$dir/package.json" ]; then
               echo "Testing service in: $dir"
               cd "$dir"
-              npm ci
-              npm test -- --passWithNoTests
+              if [ -f package-lock.json ]; then npm ci; else npm install; fi
+              npm run test --if-present
               cd - > /dev/null
             fi
           done
 
   # -------------------------------------------------------------
   # 3. QA TESTS
-  # Runs unit/integration tests located in the `qa-tests` folder
   # -------------------------------------------------------------
   qa-tests:
     name: QA Test Suite
@@ -90,13 +91,12 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Run QA Tests (if package.json exists)
+      - name: Run QA Tests
         run: |
           if [ -f "qa-tests/package.json" ]; then
             cd qa-tests
-            npm ci
-            npm test -- --passWithNoTests
+            if [ -f package-lock.json ]; then npm ci; else npm install; fi
+            npm run test --if-present
           else
             echo "No package.json found in qa-tests folder, skipping."
           fi
-          
