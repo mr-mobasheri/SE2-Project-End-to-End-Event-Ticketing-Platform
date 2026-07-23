@@ -36,6 +36,14 @@ export async function lockSeat(token, { seat_id, user_id, event_id }) {
   });
 }
 
+export async function releaseSeat(token, { seat_id, user_id }) {
+  return request('/reservations/release', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ seat_id, user_id })
+  });
+}
+
 export async function checkout(token, payload) {
   return request('/payments/checkout', {
     method: 'POST',

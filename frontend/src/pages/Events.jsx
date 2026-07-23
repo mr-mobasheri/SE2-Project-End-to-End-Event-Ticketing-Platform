@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getEvents } from '../api/client';
+import { getEvents, releaseSeat } from '../api/client';
 
 function formatDate(dateStr) {
   try {
@@ -22,19 +22,39 @@ export default function Events() {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const { setSelectedEvent, resetBooking } = useAuth();
+  const { token, username, selectedSeat, reservation, setSelectedEvent, resetBooking } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    resetBooking();
-    getEvents().then(({ ok, data }) => {
-      if (ok && Array.isArray(data)) {
-        setEvents(data);
-      } else {
-        setError('Could not load events. Is the backend running?');
+    let cancelled = false;
+
+    const init = async () => {
+      if (reservation && selectedSeat && token && username) {
+        await releaseSeat(token, {
+          seat_id: selectedSeat.seat_id,
+          user_id: username
+        }).catch(() => {});
       }
-      setLoading(false);
-    });
+      resetBooking();
+      if (cancelled) return;
+
+      getEvents().then(({ ok, data }) => {
+        if (cancelled) return;
+        if (ok && Array.isArray(data)) {
+          setEvents(data);
+        } else {
+          setError('Could not load events. Is the backend running?');
+        }
+        setLoading(false);
+      });
+    };
+
+    init();
+    return () => {
+      cancelled = true;
+    };
+    // Run once on mount; reservation/seat captured from navigation into Events
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetBooking]);
 
   const handleSelect = (event) => {

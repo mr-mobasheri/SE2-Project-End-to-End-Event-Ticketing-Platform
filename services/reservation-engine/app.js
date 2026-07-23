@@ -52,6 +52,57 @@ const runConsumer = async () => {
 };
 runConsumer().catch(console.error);
 
+async function cleanupExpiredPendingForSeat(seat_id) {
+    await pool.query(
+        "DELETE FROM reservations WHERE seat_id = $1 AND status = 'PENDING' AND expires_at < NOW()",
+        [seat_id]
+    );
+}
+
+async function sweepExpiredReservations() {
+    try {
+        const expired = await pool.query(
+            "SELECT seat_id FROM reservations WHERE status = 'PENDING' AND expires_at < NOW()"
+        );
+        for (const row of expired.rows) {
+            await redisClient.del(`lock:seat:${row.seat_id}`).catch(() => {});
+        }
+        await pool.query("DELETE FROM reservations WHERE status = 'PENDING' AND expires_at < NOW()");
+    } catch (err) {
+        console.error('[Reservation Engine] Expired reservation sweep failed:', err.message);
+    }
+}
+
+setInterval(sweepExpiredReservations, 60_000);
+
+// API Endpoint: Release Seat (abandon checkout)
+app.post('/api/v1/reservations/release', async (req, res) => {
+    const seat_id = req.body.seat_id || req.body.seatId;
+    const user_id = req.body.user_id || req.body.userId || req.body.username || req.body.user;
+
+    if (!seat_id || !user_id) {
+        return res.status(400).json({ error: 'seat_id and user_id are required' });
+    }
+
+    try {
+        const lockKey = `lock:seat:${seat_id}`;
+        const lockOwner = await redisClient.get(lockKey);
+        if (lockOwner === user_id) {
+            await redisClient.del(lockKey);
+        }
+
+        await pool.query(
+            "DELETE FROM reservations WHERE seat_id = $1 AND user_id = $2 AND status = 'PENDING'",
+            [seat_id, user_id]
+        );
+
+        return res.status(200).json({ message: 'Reservation released', seat_id });
+    } catch (error) {
+        console.error('Error releasing seat:', error);
+        return res.status(500).json({ error: 'Internal Server Error' });
+    }
+});
+
 // API Endpoint: Lock Seat
 app.post('/api/v1/reservations/lock', async (req, res) => {
     const seat_id = req.body.seat_id || req.body.seatId;
@@ -63,6 +114,26 @@ app.post('/api/v1/reservations/lock', async (req, res) => {
     }
 
     try {
+        await cleanupExpiredPendingForSeat(seat_id);
+
+        const activeHold = await pool.query(
+            `SELECT user_id FROM reservations WHERE seat_id = $1 AND (
+                status = 'CONFIRMED' OR (status = 'PENDING' AND expires_at > NOW())
+            ) LIMIT 1`,
+            [seat_id]
+        );
+        if (activeHold.rows.length > 0 && activeHold.rows[0].user_id !== user_id) {
+            return res.status(409).json({ error: 'Seat is currently locked', seat_id });
+        }
+
+        if (activeHold.rows.length > 0 && activeHold.rows[0].user_id === user_id) {
+            await pool.query(
+                "DELETE FROM reservations WHERE seat_id = $1 AND user_id = $2 AND status = 'PENDING'",
+                [seat_id, user_id]
+            );
+            await redisClient.del(`lock:seat:${seat_id}`);
+        }
+
         const lockKey = `lock:seat:${seat_id}`;
         const lockAcquired = await redisClient.set(lockKey, user_id, { NX: true, EX: 600 });
 

@@ -63,9 +63,17 @@ app.get('/api/v1/events/:eventId/seats', async (req, res) => {
     console.log(`\n[Catalog] ===== NEW REQUEST: Fetching seats for Event ID: ${eventId} =====`);
     
     try {
-        const queryText = "SELECT seat_id, status FROM reservations";
+        await pool.query(
+            "DELETE FROM reservations WHERE status = 'PENDING' AND expires_at < NOW()"
+        );
+
+        const queryText = `
+            SELECT seat_id, status FROM reservations
+            WHERE status = 'CONFIRMED'
+               OR (status = 'PENDING' AND expires_at > NOW())
+        `;
         const dbResult = await pool.query(queryText);
-        
+
         const reservationMap = new Map();
         dbResult.rows.forEach(row => {
             if (row.seat_id) {

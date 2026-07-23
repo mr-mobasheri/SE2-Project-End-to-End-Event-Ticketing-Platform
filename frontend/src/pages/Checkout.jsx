@@ -1,13 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { checkout, pollTicket } from '../api/client';
+import { checkout, pollTicket, releaseSeat } from '../api/client';
 
-function CountdownTimer({ lockedAt, expiresInSeconds }) {
+function CountdownTimer({ lockedAt, expiresInSeconds, onExpired }) {
   const [remaining, setRemaining] = useState(() => {
     const elapsed = Math.floor((Date.now() - lockedAt) / 1000);
     return Math.max(0, expiresInSeconds - elapsed);
   });
+  const expiredCalled = useRef(false);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -16,6 +17,13 @@ function CountdownTimer({ lockedAt, expiresInSeconds }) {
     }, 1000);
     return () => clearInterval(interval);
   }, [lockedAt, expiresInSeconds]);
+
+  useEffect(() => {
+    if (remaining <= 0 && onExpired && !expiredCalled.current) {
+      expiredCalled.current = true;
+      onExpired();
+    }
+  }, [remaining, onExpired]);
 
   const mins = Math.floor(remaining / 60);
   const secs = remaining % 60;
@@ -32,16 +40,55 @@ function CountdownTimer({ lockedAt, expiresInSeconds }) {
 }
 
 export default function Checkout() {
-  const { token, username, selectedEvent, selectedSeat, reservation, setPayment, setTicket } = useAuth();
+  const { token, username, selectedEvent, selectedSeat, reservation, setPayment, setTicket, setReservation, setSelectedSeat } = useAuth();
   const navigate = useNavigate();
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState('');
+  const paymentCompletedRef = useRef(false);
+  const leftIntentionallyRef = useRef(false);
+  const releaseCtxRef = useRef({ token, username, selectedSeat });
+
+  releaseCtxRef.current = { token, username, selectedSeat };
+
+  const releaseHoldOnServer = useCallback(async () => {
+    const { token: t, username: u, selectedSeat: seat } = releaseCtxRef.current;
+    if (!t || !u || !seat) return;
+    await releaseSeat(t, { seat_id: seat.seat_id, user_id: u }).catch(() => {});
+  }, []);
 
   useEffect(() => {
+    return () => {
+      if (paymentCompletedRef.current) return;
+      const { token: t, username: u, selectedSeat: seat } = releaseCtxRef.current;
+      if (t && u && seat) {
+        releaseSeat(t, { seat_id: seat.seat_id, user_id: u }).catch(() => {});
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (leftIntentionallyRef.current) return;
     if (!selectedSeat || !reservation) {
       navigate('/');
     }
   }, [selectedSeat, reservation, navigate]);
+
+  const leaveCheckout = useCallback(async () => {
+    leftIntentionallyRef.current = true;
+    paymentCompletedRef.current = true;
+    await releaseHoldOnServer();
+    setReservation(null);
+    setSelectedSeat(null);
+    navigate(-1);
+  }, [releaseHoldOnServer, navigate, setReservation, setSelectedSeat]);
+
+  const handleAbandon = () => {
+    leaveCheckout();
+  };
+
+  const handleReservationExpired = useCallback(() => {
+    leaveCheckout();
+  }, [leaveCheckout]);
 
   if (!selectedSeat || !reservation) return null;
 
@@ -71,6 +118,7 @@ export default function Checkout() {
     const ticketResult = await pollTicket(data.reference_id);
 
     if (ticketResult.ok) {
+      paymentCompletedRef.current = true;
       setTicket(ticketResult.data);
       navigate('/ticket');
     } else {
@@ -86,7 +134,11 @@ export default function Checkout() {
       <p className="card-subtitle">Review your order and complete payment</p>
 
       <div className="card" style={{ maxWidth: 480, margin: '0 auto' }}>
-        <CountdownTimer lockedAt={reservation.locked_at} expiresInSeconds={reservation.expires_in_seconds} />
+        <CountdownTimer
+          lockedAt={reservation.locked_at}
+          expiresInSeconds={reservation.expires_in_seconds}
+          onExpired={handleReservationExpired}
+        />
 
         <div className="checkout-summary">
           <div className="summary-row">
@@ -110,7 +162,7 @@ export default function Checkout() {
         {error && <div className="error-msg">{error}</div>}
 
         <div className="page-actions">
-          <button className="btn btn-ghost" onClick={() => navigate(-1)} disabled={paying}>
+          <button className="btn btn-ghost" onClick={handleAbandon} disabled={paying}>
             ← Back
           </button>
           <button className="btn btn-primary" onClick={handlePay} disabled={paying}>
